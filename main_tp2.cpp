@@ -38,7 +38,7 @@ Mat rehaussementContraste(Mat input, int alpha) {
 }
 
 /** --- FILTRES DERIVATIFS --- **/
-Mat sobelX(Mat input, float delta=128.0) {
+Mat sobelX(Mat input, float delta = 128.0) {
     Mat output;
 
     Mat kernel = (Mat_<float>(3, 3) <<
@@ -50,7 +50,7 @@ Mat sobelX(Mat input, float delta=128.0) {
     return output;
 }
 
-Mat sobelY(Mat input, float delta=128.0) {
+Mat sobelY(Mat input, float delta = 128.0) {
     Mat output;
 
     Mat kernel = (Mat_<float>(3, 3) <<
@@ -95,11 +95,11 @@ Mat gradientFromSobel(Mat input) {
 }
 
 /** --- DETECTION MARR-HILDRETH --- **/
-bool isChangeInNeighborhood(Mat input, Mat laplacien, int x, int y) {
+bool isChangedInNeighborhood(Mat input, Mat laplacien, int x, int y) {
     for (int k = x - 1; k < x + 2; k++) {
         for (int n = y - 1; n < y + 2; n++) {
-            if ((input.at<float>(k, n) < 0 && laplacien.at<float>(k, n) >= 0 )
-                    || (input.at<float>(k, n) >= 0 && laplacien.at<float>(k, n) < 0) ) {
+            if ((input.at<float>(k, n) < 0 && laplacien.at<float>(k, n) >= 0)
+                || (input.at<float>(k, n) >= 0 && laplacien.at<float>(k, n) < 0)) {
                 return true;
             }
         }
@@ -125,9 +125,57 @@ Mat seuilMarrHildreth(Mat input, int seuil, int alpha) {
 
     for (int y = 0; y < input.cols - 1; y++) {
         for (int x = 1; x < input.rows - 1; x++) {
-            bool isChange = isChangeInNeighborhood(input, imageLaplacien, x, y);
-            if (imageGradient.at<float>(x, y) >= (float) seuil && isChange) {
+            bool isChanged = isChangedInNeighborhood(input, imageLaplacien, x, y);
+            if (imageGradient.at<float>(x, y) >= (float) seuil && isChanged) {
                 output.at<float>(x, y) = 0.0;
+            } else {
+                output.at<float>(x, y) = 255.0;
+            }
+        }
+    }
+
+    input.convertTo(input, CV_8UC1);
+    output.convertTo(output, CV_8UC1);
+
+    return output;
+}
+
+/** --- ESQUISSE --- **/
+double rand01() {
+    return rand() / (double) RAND_MAX;
+}
+
+Mat esquisse(Mat input, int seuil, int alpha, int proportion, int longueur) {
+    Mat output;
+    Mat imageGradient;
+    Mat imageLaplacien;
+
+    input.convertTo(input, CV_32FC1);
+
+    input.copyTo(output);
+    input.copyTo(imageGradient);
+    input.copyTo(imageLaplacien);
+
+    imageLaplacien = rehaussementContraste(input, alpha);
+
+    imageGradient = gradientFromSobel(imageGradient);
+    imageGradient.convertTo(imageGradient, CV_32FC1);
+
+    for (int y = 0; y < input.cols; y++) {
+        for (int x = 1; x < input.rows; x++) {
+            bool isChanged = isChangedInNeighborhood(input, imageLaplacien, x, y);
+            if (imageGradient.at<float>(x, y) >= (float) seuil && isChanged) {
+                if (rand01() < (proportion / 100.0)) {
+                    double theta = atan2(-y, x) + M_PI / 2 + 0.02 * (rand01() - 0.5);
+                    float g = imageGradient.at<float>(x, y);
+                    double longueurP = (g / 255.0) * (longueur / 100.0);
+                    line(output,
+                         Point_<float>(y + longueurP * cos(theta), x + longueurP * sin(theta)),
+                         Point_<float>(y - longueurP * cos(theta), x - longueurP * sin(theta)),
+                         0, 1, 1);
+                } else {
+                    output.at<float>(x, y) = 255.0;
+                }
             } else {
                 output.at<float>(x, y) = 255.0;
             }
@@ -166,6 +214,15 @@ int main(int, char *argv[]) {
     createTrackbar("seuil (en %)", "TP2 - Image", nullptr, 200, nullptr);
     setTrackbarPos("seuil (en %)", "TP2 - Image", seuil);
 
+    // Trackbar pour esquisse
+    int proportion = 50;
+    int longueur = 100;
+
+    createTrackbar("proportion (en %)", "TP2 - Image", nullptr, 100, nullptr);
+    setTrackbarPos("proportion (en %)", "TP2 - Image", proportion);
+    createTrackbar("longueur (en %)", "TP2 - Image", nullptr, 1000, nullptr);
+    setTrackbarPos("longueur (en %)", "TP2 - Image", longueur);
+
     // Conversion de la photo en noir et blanc
     if (input.channels() == 3)
         cv::cvtColor(input, input, COLOR_BGR2GRAY);
@@ -200,10 +257,18 @@ int main(int, char *argv[]) {
                 output = gradientFromSobel(input);
                 break;
             case 't':
-                // récupère la valeur courante de seuil
+                // récupère la valeur courante de seuil et alpha
                 seuil = getTrackbarPos("seuil (en %)", "TP2 - Image");
                 alpha = getTrackbarPos("alpha (en %)", "TP2 - Image");
                 output = seuilMarrHildreth(input, seuil, alpha);
+                break;
+            case 'e':
+                // récupère la valeur courante de seuil, de proportion et de longueur
+                seuil = getTrackbarPos("seuil (en %)", "TP2 - Image");
+                alpha = getTrackbarPos("alpha (en %)", "TP2 - Image");
+                proportion = getTrackbarPos("proportion (en %)", "TP2 - Image");
+                longueur = getTrackbarPos("longueur (en %)", "TP2 - Image");
+                output = esquisse(input, seuil, alpha, proportion, longueur);
             default:
                 break;
         }
